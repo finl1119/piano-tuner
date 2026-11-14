@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Piano Tuner Prototype</title>
+<style>
+/* Phase 1 prototype: listen, identify the note, measure its partials. */
+:root{--bg:#121212;--panel:#1c1b19;--ink:#f4efe4;--dim:#9a948a;--felt:#c8372d;--ok:#4fbf7a;--warn:#e0a63a;--line:#2e2c29}
+*{box-sizing:border-box;min-width:0}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;overflow-x:clip}
+main{max-width:720px;margin:0 auto;padding:16px}
+h1{font-size:18px;font-weight:600;margin:0 0 2px}
+.sub{color:var(--dim);font-size:13px;margin:0 0 14px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:12px}
+.top{display:flex;align-items:flex-end;justify-content:space-between;gap:10px}
+#note{font-size:clamp(56px,18vw,96px);font-weight:700;line-height:1}
+#cents{font-size:clamp(32px,10vw,52px);font-variant-numeric:tabular-nums;text-align:right;line-height:1}
+.meta{display:flex;justify-content:space-between;color:var(--dim);font-size:13px;margin-top:6px;gap:8px;flex-wrap:wrap}
+.chip{padding:2px 9px;border-radius:99px;font-size:12px;font-weight:600;background:var(--line);color:var(--dim)}
+.chip.High{background:var(--ok);color:#06210f}.chip.Medium{background:var(--warn);color:#2a1a00}.chip.Low{background:var(--felt);color:#fff}
+#strobe{width:100%;height:70px;display:block;border-radius:10px;background:#0b0b0b;margin-top:12px}
+.bar{position:relative;height:26px;margin-top:10px;background:#0b0b0b;border-radius:8px}
+.bar .mid{position:absolute;left:50%;top:0;bottom:0;width:2px;background:var(--ok)}
+.bar .needle{position:absolute;top:3px;bottom:3px;width:6px;margin-left:-3px;border-radius:3px;background:var(--ink);left:50%;transition:left .08s}
+.scale{display:flex;justify-content:space-between;font-size:11px;color:var(--dim);margin-top:3px}
+.row{display:grid;grid-template-columns:34px 70px minmax(0,1fr) 64px;gap:8px;align-items:center;font-size:14px;padding:3px 0;font-variant-numeric:tabular-nums}
+.row .s{height:8px;background:#0b0b0b;border-radius:4px;overflow:hidden}.row .s i{display:block;height:100%;background:var(--dim)}
+.row.used{color:var(--ink)}.row.used .s i{background:var(--felt)}
+.row.miss{color:#55514b}
+.r{text-align:right}
+h2{font-size:14px;margin:0 0 8px;color:var(--dim);font-weight:600}
+.controls{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+button,select,input{font:inherit;font-size:16px;min-height:44px;border-radius:10px;border:1px solid var(--line);background:#26241f;color:var(--ink);padding:0 14px}
+button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--ok);outline-offset:2px}
+#start{background:var(--felt);border-color:var(--felt);font-weight:600;flex:1 1 140px}
+#start.on{background:#26241f;border-color:var(--line)}
+#lock.on{background:var(--ok);color:#06210f;border-color:var(--ok)}
+input[type=number]{width:96px}
+label{font-size:13px;color:var(--dim);display:flex;align-items:center;gap:6px}
+.stat{display:flex;justify-content:space-between;font-size:14px;padding:3px 0}
+.stat b{font-variant-numeric:tabular-nums;font-weight:600}
+#msg{font-size:13px;color:var(--warn);min-height:18px;margin-top:8px}
+.note{font-size:12px;color:var(--dim)}
+</style>
+</head>
+<body>
+<main>
+<h1>Piano Tuner — Phase 1 prototype</h1>
+<p class="sub">Play one note at a time, firmly, and let it ring. Targets are plain equal temperament (no stretch yet).</p>
+
+<div class="card">
+  <div class="top">
+    <div id="note">—</div>
+    <div><div id="cents">±0.0</div><div class="note" style="text-align:right">cents</div></div>
+  </div>
+  <div class="meta">
+    <span id="hz">— Hz</span>
+    <span>Reading partial <b id="usedp">—</b></span>
+    <span>Confidence <span id="conf" class="chip">—</span></span>
+  </div>
+  <canvas id="strobe"></canvas>
+  <div class="bar"><div class="mid"></div><div class="needle" id="needle"></div></div>
+  <div class="scale"><span>−50 flat</span><span>0</span><span>sharp +50</span></div>
+</div>
+
+<div class="card">
+  <div class="controls">
+    <button id="start">Start listening</button>
+    <button id="lock" title="Stop automatic note switching">Auto note</button>
+    <button id="down" aria-label="Previous note">◀</button>
+    <button id="up" aria-label="Next note">▶</button>
+  </div>
+  <div class="controls" style="margin-top:8px">
+    <label>A4 = <input id="a4" type="number" value="440" min="415" max="466" step="0.1"> Hz</label>
+    <label>Partial <select id="psel"><option value="0">Auto</option><option>1</option><option>2</option><option>3</option><option>4</option><option>6</option></select></label>
+  </div>
+  <div id="msg"></div>
+</div>
+
+<div class="card">
+  <h2>Partials (overtones) of this note</h2>
+  <div id="parts"></div>
+  <p class="note">Cents shown against perfect whole-number multiples. Upper partials reading sharp is normal — that's inharmonicity.</p>
+</div>
+
+<div class="card">
+  <h2>Measurements</h2>
+  <div class="stat"><span>Inharmonicity (B)</span><b id="bval">—</b></div>
+  <div class="stat"><span>Signal above room noise</span><b id="snr">—</b></div>
+  <div class="stat"><span>Reading steadiness</span><b id="std">—</b></div>
+  <div class="stat"><span>Sample rate / resolution</span><b id="res">—</b></div>
+</div>
+</main>
+
+<script id="core">
+// ---------- Pure analysis functions (no browser APIs; testable) ----------
+const NAMES=['C','C♯','D','E♭','E','F','F♯','G','A♭','A','B♭','B'];
+function noteName(m){return NAMES[m%12]+(Math.floor(m/12)-1);}
+function etFreq(m,a4){return a4*Math.pow(2,(m-69)/12);}
+function centsOf(f,ref){return 1200*Math.log2(f/ref);}
+// Rough typical inharmonicity by key: small in the bass, rising steeply through the treble.
+function typB(m){return m<48?0.0002:0.0006*Math.pow(2,(m-60)/12);}
+function stretchK(k,B){return k*Math.sqrt((1+B*k*k)/(1+B));}
+
+// Find a true spectral peak within ±win cents of f. db = dB spectrum, binHz = Hz per bin.
+function peakNear(db,binHz,f,win){
+  let lo=Math.floor(f*Math.pow(2,-win/1200)/binHz), hi=Math.ceil(f*Math.pow(2,win/1200)/binHz);
+  lo=Math.max(1,lo); hi=Math.min(db.length-2,hi);
+  if(hi<lo) return null;
+  let bi=-1,bv=-Infinity;
+  for(let i=lo;i<=hi;i++) if(db[i]>bv){bv=db[i];bi=i;}
+  if(db[bi-1]>bv||db[bi+1]>bv) return null;           // sloping edge, not a peak
+  const a=db[bi-1],b=bv,c=db[bi+1],den=a-2*b+c;
+  const p=den<0?0.5*(a-c)/den:0;                        // parabolic interpolation
+  return {f:(bi+p)*binHz, db:b-0.25*(a-c)*p};
+}
+
+// Typical room/electrical noise level (median of the useful range).
+function noiseFloor(db,binHz){
+  const lo=Math.floor(25/binHz), hi=Math.min(db.length-1,Math.floor(5000/binHz)), v=[];
+  for(let i=lo;i<hi;i+=4) if(isFinite(db[i])) v.push(db[i]);
+  v.sort((x,y)=>x-y); return v.length?v[v.length>>1]:-120;
+}
+
+// Guess which of the 88 keys is sounding, by looking at all its partials together.
+function detectNote(db,binHz,floor,a4){
+  const nyq=binHz*db.length; let best=null,second=0;
+  const lin=p=>p&&p.db>floor+12?Math.pow(10,(p.db-floor)/20):0;
+  for(let m=21;m<=108;m++){
+    const f0=etFreq(m,a4), Bt=typB(m); let s=0,hits=0;
+    for(let k=1;k<=8;k++){
+      const fk=stretchK(k,Bt)*f0; if(fk>Math.min(nyq*0.9,12000)) break;
+      const v=lin(peakNear(db,binHz,fk,55+4*k)); s+=(k===1&&m>=40?1.5:1)*v; if(v) hits++;
+      if(k<=6) s-=0.6*lin(peakNear(db,binHz,(k-0.5)*f0,40)); // penalize octave-up mistakes
+    }
+    if(hits<1) continue;
+    if(!best||s>best.s){second=best?best.s:second;best={m,s,hits};}
+    else if(s>second) second=s;
+  }
+  if(!best||best.s<=0) return null;
+  best.margin=second>0?best.s/second:9; return best;
+}
+
+// Measure partials 1..8 of a known note and estimate inharmonicity B.
+function measureNote(db,binHz,floor,m,a4){
+  const fET=etFreq(m,a4), nyq=binHz*db.length, parts=[];
+  const ok=p=>p&&p.db>floor+12;
+  let p1=peakNear(db,binHz,fET,60); if(!ok(p1)) p1=null;
+  let f1=p1?p1.f:null, B=typB(m);
+  if(!f1){ // weak fundamental (common in the low bass): infer from partials 2-4
+    for(let k=2;k<=4&&!f1;k++){const p=peakNear(db,binHz,k*fET,70); if(ok(p)) f1=p.f/(k*Math.sqrt((1+B*k*k)/(1+B)));}
+  }
+  for(let k=1;k<=8;k++){
+    const fk=k*fET; if(fk>nyq*0.9) break;
+    let p;
+    if(k===1) p=p1;
+    else{
+      const c=f1?k*f1*Math.sqrt((1+B*k*k)/(1+B)):fk;
+      p=peakNear(db,binHz,c,k<=3?45:35); if(!ok(p)) p=null;
+    }
+    parts.push(p?{k,f:p.f,db:p.db,snr:p.db-floor,cents:centsOf(p.f,fk)}:{k,miss:true});
+    if(p&&f1&&k>=2){ // refine B as partials come in
+      const bs=parts.filter(q=>!q.miss&&q.k>=2).map(q=>{const r=(q.f/(q.k*f1))**2;return (r-1)/(q.k*q.k-r);}).filter(b=>b>0&&b<0.05).sort((a,b)=>a-b);
+      if(bs.length) B=bs[bs.length>>1];
+    }
+  }
+  const found=parts.filter(q=>!q.miss);
+  return {m,fET,parts,B:(p1&&found.length>=3)?B:null};
+}
+
+// Which partial to read the pitch from.
+function choosePartial(meas,pref){
+  const P=meas.parts, has=k=>P[k-1]&&!P[k-1].miss;
+  if(pref&&has(pref)) return P[pref-1];
+  if(pref) return null;
+  const order=meas.m<28?[3,4,2,6]:meas.m<40?[2,3,1,4]:[1,2];
+  for(const k of order) if(has(k)) return P[k-1];
+  return P.find(q=>!q.miss)||null;
+}
+
+function confidence(snr,std){
+  const a=Math.max(0,Math.min(1,(snr-12)/25)), b=Math.max(0,Math.min(1,1-std/1.5)), s=a*b;
+  return s>0.66?'High':s>0.33?'Medium':'Low';
+}
+</script>
+
+<script>
+{
+const $=id=>document.getElementById(id);
+let ctx,an,stream,buf,timer,wake=null,running=false;
+let locked=false,cur=null,cand=null,candN=0,hist=[],shown=0,phase=0,last=performance.now();
+
+$('parts').innerHTML=[1,2,3,4,5,6,7,8].map(k=>`<div class="row miss" id="p${k}"><span>P${k}</span><span class="r c">—</span><span class="s"><i style="width:0"></i></span><span class="r d">—</span></div>`).join('');
+
+async function start(){
+  try{
+    if(!window.isSecureContext||!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia) throw {name:'Insecure'};
+    try{
+      stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false}});
+    }catch(e){
+      if(e.name==='NotAllowedError'||e.name==='SecurityError') throw e;
+      stream=await navigator.mediaDevices.getUserMedia({audio:true});   // fallback if the special settings aren't supported
+    }
+  }catch(e){$('msg').textContent=micHelp(e);return;}
+  ctx=new (window.AudioContext||window.webkitAudioContext)();
+  an=ctx.createAnalyser(); an.fftSize=32768; an.smoothingTimeConstant=0;
+  ctx.createMediaStreamSource(stream).connect(an);
+  buf=new Float32Array(an.frequencyBinCount);
+  $('res').textContent=`${ctx.sampleRate} Hz / ${(ctx.sampleRate/an.fftSize).toFixed(2)} Hz`;
+  timer=setInterval(analyze,90); running=true;
+  $('start').textContent='Stop'; $('start').classList.add('on'); $('msg').textContent='';
+  try{wake=await navigator.wakeLock.request('screen');}catch(e){}
+}
+function stop(){
+  clearInterval(timer); running=false;
+  if(stream) stream.getTracks().forEach(t=>t.stop());
+  if(ctx) ctx.close(); if(wake){wake.release();wake=null;}
+  $('start').textContent='Start listening'; $('start').classList.remove('on');
+}
+$('start').onclick=()=>running?stop():start();
+$('lock').onclick=()=>{locked=!locked;$('lock').classList.toggle('on',locked);$('lock').textContent=locked?'Note locked':'Auto note';};
+const step=d=>{cur=Math.max(21,Math.min(108,(cur||69)+d));locked=true;$('lock').classList.add('on');$('lock').textContent='Note locked';hist=[];$('note').textContent=noteName(cur);};
+$('down').onclick=()=>step(-1); $('up').onclick=()=>step(1);
+
+function analyze(){
+  an.getFloatFrequencyData(buf);
+  const binHz=ctx.sampleRate/an.fftSize, a4=+$('a4').value||440, floor=noiseFloor(buf,binHz);
+  if(!locked){
+    const d=detectNote(buf,binHz,floor,a4);
+    if(d&&d.margin>1.15){
+      if(d.m===cand) candN++; else {cand=d.m;candN=1;}
+      if(candN>=3&&d.m!==cur){cur=d.m;hist=[];}       // switch after 3 agreeing frames
+    }
+  }
+  if(cur==null) return idle('Play a note…');
+  const meas=measureNote(buf,binHz,floor,cur,a4);
+  const p=choosePartial(meas,+$('psel').value);
+  drawParts(meas,p);
+  $('note').textContent=noteName(cur);
+  $('bval').textContent=meas.B?meas.B.toExponential(2):'—';
+  if(!p) return idle('Waiting for a clear tone…');
+  hist.push(p.cents); if(hist.length>8) hist.shift();
+  const s=[...hist].sort((a,b)=>a-b), med=s[s.length>>1];
+  const mean=hist.reduce((a,b)=>a+b,0)/hist.length, std=Math.sqrt(hist.reduce((a,b)=>a+(b-mean)**2,0)/hist.length);
+  shown=hist.length>=3?med:p.cents;
+  const conf=hist.length>=3?confidence(p.snr,std):'Low';
+  $('cents').textContent=(shown>=0?'+':'−')+Math.abs(shown).toFixed(1);
+  $('cents').style.color=Math.abs(shown)<1?'var(--ok)':'var(--ink)';
+  $('hz').textContent=(p.f/p.k).toFixed(2)+' Hz';
+  $('usedp').textContent=p.k;
+  $('conf').textContent=conf; $('conf').className='chip '+conf;
+  $('snr').textContent=p.snr.toFixed(0)+' dB';
+  $('std').textContent='±'+std.toFixed(2)+' ¢';
+  $('needle').style.left=(50+Math.max(-50,Math.min(50,shown)))+'%';
+}
+function idle(t){$('msg').textContent=t;$('conf').textContent='—';$('conf').className='chip';shown=NaN;}
+
+function drawParts(meas,used){
+  for(let k=1;k<=8;k++){
+    const r=$('p'+k), q=meas.parts[k-1];
+    if(!q||q.miss){r.className='row miss';r.querySelector('.c').textContent='—';r.querySelector('i').style.width='0';r.querySelector('.d').textContent='—';continue;}
+    r.className='row'+(used&&used.k===k?' used':'');
+    r.querySelector('.c').textContent=(q.cents>=0?'+':'−')+Math.abs(q.cents).toFixed(1)+'¢';
+    r.querySelector('i').style.width=Math.min(100,q.snr*1.6)+'%';
+    r.querySelector('.d').textContent=q.snr.toFixed(0)+' dB';
+  }
+  if(used) $('msg').textContent='';
+}
+
+// Strobe: stripes drift right when sharp, left when flat, stand still when in tune.
+const cv=$('strobe'), g=cv.getContext('2d');
+function frame(t){
+  const dt=(t-last)/1000; last=t;
+  const W=cv.clientWidth,H=cv.clientHeight,dpr=devicePixelRatio||1;
+  if(cv.width!==W*dpr){cv.width=W*dpr;cv.height=H*dpr;}
+  g.setTransform(dpr,0,0,dpr,0,0); g.clearRect(0,0,W,H);
+  const live=running&&isFinite(shown);
+  if(live) phase+=Math.max(-60,Math.min(60,shown))*dt*12;
+  const bands=[[0,H/3,40],[H/3,H/3,20],[2*H/3,H/3,10]];   // three rows, finer = more sensitive
+  bands.forEach(([y,h,w],i)=>{
+    g.fillStyle=live?(Math.abs(shown)<1?'#4fbf7a':'#f4efe4'):'#3a3733';
+    const off=((phase*(i+1))%(w*2)+w*2)%(w*2);
+    for(let x=-w*2+off;x<W;x+=w*2) g.fillRect(x,y+2,w,h-4);
+  });
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+function micHelp(e){
+  const where=`[${e.name||'Error'} · opened via ${location.protocol}//${location.host||'local file'}]`;
+  if(e.name==='Insecure') return `This copy was opened as a file, not from your github.io web address, so browsers won't allow the microphone. Open https://finl1119.github.io/piano-tuner/ instead. ${where}`;
+  if(e.name==='NotAllowedError'||e.name==='SecurityError') return `The browser blocked the mic for this website (separate from your phone settings). iPhone Safari: tap "aA" in the address bar → Website Settings → Microphone → Allow. Android Chrome: tap the icon left of the address → Permissions → Microphone → Allow. Then reload. If you opened the link inside another app (GitHub, Gmail, Messages), open it in Safari or Chrome instead. ${where}`;
+  if(e.name==='NotFoundError') return `No microphone was found on this device. ${where}`;
+  if(e.name==='NotReadableError') return `Another app is using the microphone (a call, voice memo, or recording app). Close it and try again. ${where}`;
+  return `Couldn't start the microphone: ${e.message||e.name}. ${where}`;
+}
+if(!window.isSecureContext) $('msg').textContent=micHelp({name:'Insecure'});
+}
+</script>
+</body>
+</html>
